@@ -13,6 +13,10 @@ import (
 )
 
 func Exec() error {
+
+	/**
+	GitHubに接続するための各種設定値を取得
+	*/
 	githubHost := GetGitHubHostDomain()
 
 	targetRepos, err := GetInspectionTargetRepository()
@@ -22,18 +26,26 @@ func Exec() error {
 
 	accessToken := GetGitHubAccessToken()
 
+	/**
+	ログインを試行
+	*/
 	loginUser, err := askWhoAmI(githubHost, accessToken)
 	if err != nil {
 		return errors.WithStack(err)
 	}
-
 	log.Printf("Logined to %s as %s\n", githubHost, *loginUser)
 
+	/**
+	プルリクエストを取得してレビュー率を算出
+	*/
 	stats, err := CalcReviewPercentageOverall(targetRepos, githubHost, accessToken, *loginUser)
 	if err != nil {
 		return errors.WithStack(err)
 	}
 
+	/**
+	算出したレビュー率を出力
+	*/
 	err = PrintToStdout(*stats)
 	if err != nil {
 		return errors.WithStack(err)
