@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/pkg/errors"
-	"github.com/shurcooL/githubv4"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -12,63 +11,6 @@ import (
 	"os/user"
 	"path/filepath"
 )
-
-type User struct {
-	Login githubv4.String
-}
-
-type PageInfo struct {
-	HasNextPage githubv4.Boolean
-	EndCursor   githubv4.String
-}
-
-type GhQuery struct {
-	Repository struct {
-		Name         githubv4.String
-		PullRequests struct {
-			PageInfo   PageInfo
-			TotalCount githubv4.Int
-			Nodes      []struct {
-				Author        User `graphql:"author"`
-				Title         githubv4.String
-				TimelineItems struct {
-					PageInfo   PageInfo
-					TotalCount githubv4.Int
-					Nodes      []struct {
-						TypeName          githubv4.String `graphql:"__typename"`
-						PullRequestReview struct {
-							Author User `graphql:"author"`
-						} `graphql:"... on PullRequestReview"`
-						IssueComment struct {
-							Author User `graphql:"author"`
-						} `graphql:"... on IssueComment"`
-						ClosedEvent struct {
-							Actor User `graphql:"actor"`
-						} `graphql:"... on ClosedEvent"`
-					}
-				} `graphql:"timelineItems(first: 100)"`
-			}
-		} `graphql:"pullRequests(first: 100)"`
-	} `graphql:"repository(owner: $repositoryOwner, name: $repositoryName)"`
-}
-
-type PullRequest struct {
-	Id            int
-	Title         string
-	isContributed bool
-}
-
-type GhRepositoryQuerySimplified struct {
-	RepoName     string
-	PullRequests []PullRequest
-}
-
-type OutputJson struct {
-	ReviewPercentage   float64 `json:"reviewPercentage"`
-	ReviewedPRs        int     `json:"reviewedPRs"`
-	PRsCreatedByOthers int     `json:"PRsCreatedByOthers"`
-	AllPRs             int     `json:"allPRs"`
-}
 
 func Exec() error {
 	githubHost := GetGitHubHostDomain()
@@ -87,24 +29,14 @@ func Exec() error {
 
 	log.Printf("Logined to %s as %s\n", githubHost, *loginUser)
 
-	for _, targetRepo := range targetRepos {
-		percentage, reviewed, target, total, err := CalcReviewPercentageForSingleRepo(targetRepo, githubHost, accessToken, loginUser)
-		if err != nil {
-			return errors.WithStack(err)
-		}
+	stats, err := CalcReviewPercentageOverall(targetRepos, githubHost, accessToken, *loginUser)
+	if err != nil {
+		return errors.WithStack(err)
+	}
 
-		outputJsonData := OutputJson{
-			ReviewPercentage:   percentage,
-			ReviewedPRs:        reviewed,
-			PRsCreatedByOthers: target,
-			AllPRs:             total,
-		}
-		outputJsonText, err := json.Marshal(&outputJsonData)
-		if err != nil {
-			return errors.WithStack(err)
-		}
-
-		fmt.Printf("%s", outputJsonText)
+	err = PrintToStdout(*stats)
+	if err != nil {
+		return errors.WithStack(err)
 	}
 
 	return nil
@@ -171,4 +103,3 @@ func askWhoAmI(githubHost string, accessToken string) (*string, error) {
 
 	return &response.Login, nil
 }
-

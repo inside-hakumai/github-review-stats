@@ -11,24 +11,123 @@ import (
 
 type Stats struct {
 	Percentage float64
-	Reviewed int
-	Target int
-	Total int
+	Reviewed   int
+	Target     int
+	Total      int
 }
 
-func CalcReviewPercentageForSingleRepo(targetRepo string, githubHost string, accessToken string, loginUser *string) (float64, int, int, int, error) {
+type GhQuery struct {
+	Repository struct {
+		Name         githubv4.String
+		PullRequests struct {
+			PageInfo   PageInfo
+			TotalCount githubv4.Int
+			Nodes      []struct {
+				Author        User `graphql:"author"`
+				Title         githubv4.String
+				TimelineItems struct {
+					PageInfo   PageInfo
+					TotalCount githubv4.Int
+					Nodes      []struct {
+						TypeName          githubv4.String `graphql:"__typename"`
+						PullRequestReview struct {
+							Author User `graphql:"author"`
+						} `graphql:"... on PullRequestReview"`
+						IssueComment struct {
+							Author User `graphql:"author"`
+						} `graphql:"... on IssueComment"`
+						ClosedEvent struct {
+							Actor User `graphql:"actor"`
+						} `graphql:"... on ClosedEvent"`
+					}
+				} `graphql:"timelineItems(first: 100)"`
+			}
+		} `graphql:"pullRequests(first: 100)"`
+	} `graphql:"repository(owner: $repositoryOwner, name: $repositoryName)"`
+}
+
+type User struct {
+	Login githubv4.String
+}
+
+type PageInfo struct {
+	HasNextPage githubv4.Boolean
+	EndCursor   githubv4.String
+}
+
+type PullRequest struct {
+	Id            int
+	Title         string
+	isContributed bool
+}
+
+type GhRepositoryQuerySimplified struct {
+	RepoName     string
+	PullRequests []PullRequest
+}
+
+type RepoReviewStats struct {
+	RepoName           string
+	ReviewPercentage   float64
+	ReviewedPRs        int
+	PRsCreatedByOthers int
+	AllPRs             int
+}
+
+type OverallStats struct {
+	ReviewPercentage   float64
+	ReviewedPRs        int
+	PRsCreatedByOthers int
+	AllPRs             int
+	RepoStatsList      []RepoReviewStats
+}
+
+func CalcReviewPercentageOverall(targetRepos []string, githubHost string, accessToken string, loginUser string) (*OverallStats, error) {
+	numOfOverallReviewedPRs := 0
+	numOfOverallPRsCreatedByOthers := 0
+	numOfOverallTotalPRs := 0
+	var repoStatsList []RepoReviewStats
+	for _, targetRepo := range targetRepos {
+		repoReviewStats, err := CalcReviewPercentageForSingleRepo(targetRepo, githubHost, accessToken, loginUser)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+
+		repoStatsList = append(repoStatsList, *repoReviewStats)
+		numOfOverallReviewedPRs += repoReviewStats.ReviewedPRs
+		numOfOverallPRsCreatedByOthers += repoReviewStats.PRsCreatedByOthers
+		numOfOverallTotalPRs += repoReviewStats.AllPRs
+	}
+
+	return &OverallStats{
+		ReviewPercentage:   float64(numOfOverallReviewedPRs) / float64(numOfOverallPRsCreatedByOthers),
+		ReviewedPRs:        numOfOverallReviewedPRs,
+		PRsCreatedByOthers: numOfOverallPRsCreatedByOthers,
+		AllPRs:             numOfOverallTotalPRs,
+		RepoStatsList:      repoStatsList,
+	}, nil
+
+}
+
+func CalcReviewPercentageForSingleRepo(targetRepo string, githubHost string, accessToken string, loginUser string) (*RepoReviewStats, error) {
 	slice := strings.Split(targetRepo, "/")
 	if len(slice) != 2 {
-		return 0, 0, 0, 0, errors.New("Invalid repository format")
+		return nil, errors.New("Invalid repository format")
 	}
 
 	query, err := executeGhQueryForRepository(githubHost, slice[0], slice[1], accessToken)
 	if err != nil {
-		return 0, 0, 0, 0, errors.WithStack(err)
+		return nil, errors.WithStack(err)
 	}
 
-	reviewed, createdByOthers, total := countPRsNumber(*query, *loginUser)
-	return float64(reviewed) / float64(createdByOthers) , reviewed, createdByOthers, total, nil
+	reviewed, createdByOthers, total := countPRsNumber(*query, loginUser)
+	return &RepoReviewStats{
+		RepoName:           targetRepo,
+		ReviewPercentage:   float64(reviewed) / float64(createdByOthers),
+		ReviewedPRs:        reviewed,
+		PRsCreatedByOthers: createdByOthers,
+		AllPRs:             total,
+	}, nil
 }
 
 func executeGhQueryForRepository(githubHost string, repositoryOwner string, repositoryName string, accessToken string) (*GhQuery, error) {
