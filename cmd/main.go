@@ -7,38 +7,23 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
-	"os/user"
-	"path/filepath"
 )
 
-func Exec() error {
-
-	/**
-	GitHubに接続するための各種設定値を取得
-	*/
-	githubHost := GetGitHubHostDomain()
-
-	targetRepos, err := GetInspectionTargetRepository()
-	if err != nil {
-		return errors.WithStack(err)
-	}
-
-	accessToken := GetGitHubAccessToken()
+func Exec(values FlagValues) error {
 
 	/**
 	ログインを試行
 	*/
-	loginUser, err := askWhoAmI(githubHost, accessToken)
+	loginUser, err := askWhoAmI(values.githubHostDomain, values.token)
 	if err != nil {
 		return errors.WithStack(err)
 	}
-	log.Printf("Logined to %s as %s\n", githubHost, *loginUser)
+	log.Printf("Logined to %s as %s\n", values.githubHostDomain, *loginUser)
 
 	/**
 	プルリクエストを取得してレビュー率を算出
 	*/
-	stats, err := CalcReviewPercentageOverall(targetRepos, githubHost, accessToken, *loginUser)
+	stats, err := CalcReviewPercentageOverall(values.repositories, values.githubHostDomain, values.token, values.userId)
 	if err != nil {
 		return errors.WithStack(err)
 	}
@@ -52,25 +37,6 @@ func Exec() error {
 	}
 
 	return nil
-}
-
-func ensureAppDirPath() (*string, error) {
-	usr, err := user.Current()
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO: macOS以外のOSに対応
-	appDirPath := filepath.FromSlash(usr.HomeDir + "/Library/Application Support/dev.insidehakumai.ghreviewstats")
-
-	if _, err = os.Stat(appDirPath); os.IsNotExist(err) {
-		// Create the new config file.
-		if err := os.MkdirAll(appDirPath, 0755); err != nil {
-			return nil, errors.WithStack(err)
-		}
-	}
-
-	return &appDirPath, nil
 }
 
 func askWhoAmI(githubHost string, accessToken string) (*string, error) {
