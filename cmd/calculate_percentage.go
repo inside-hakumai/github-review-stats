@@ -132,8 +132,13 @@ func CalcReviewPercentageForSingleRepo(targetRepo string, githubHost string, acc
 
 func executeGhQueryForRepository(githubHost string, repositoryOwner string, repositoryName string, accessToken string) (*GhQuery, error) {
 
+	var graphqlEndpoint string
 	// TODO: githubHostの末尾に / があるかどうかを考慮する
-	graphqlEndpoint := fmt.Sprintf("https://%s/graphql", githubHost)
+	if githubHost == "api.github.com" {
+		graphqlEndpoint = fmt.Sprintf("https://%s/graphql", githubHost)
+	} else {
+		graphqlEndpoint = fmt.Sprintf("https://%s/api/graphql", githubHost)
+	}
 
 	src := oauth2.StaticTokenSource(
 		&oauth2.Token{AccessToken: accessToken},
